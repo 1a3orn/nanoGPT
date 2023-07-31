@@ -393,8 +393,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x, rel_pos):
-        x = x + self.attn(self.ln_1(x), rel_pos)
+    def forward(self, x, rel_pos, incremental_state):
+        x = x + self.attn(self.ln_1(x), rel_pos, incremental_state)
         x = x + self.mlp(self.ln_2(x))
         return x
 
