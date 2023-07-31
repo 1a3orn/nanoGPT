@@ -302,7 +302,7 @@ class Retention(nn.Module):
         #print("kr", kr.shape)
         #print("kv", kv.shape)
         if "prev_key_value" in incremental_state:
-            print("using ", kv.shape, kr.shape, v.shape, kv.reshape(1, -1)[1,:5])
+            print("using ", kv.shape, kr.shape, v.shape)
             prev_kv = incremental_state["prev_key_value"]
             prev_scale = incremental_state["scale"]
             scale = prev_scale * decay + 1
