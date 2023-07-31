@@ -461,7 +461,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None):
+    def forward(self, idx, incremental_states=None, targets=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -472,8 +472,18 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         rel_pos = self.transformer.rel_pos(t)
         x = self.transformer.drop(tok_emb + pos_emb)
-        for block in self.transformer.h:
-            x = block(x, rel_pos)
+        
+        if incremental_states is not None:
+            for i in range(len(self.transformer.h)):
+                if i not in incremental_states:
+                    incremental_states[i] = {}
+        
+        if incremental_states is not None:
+            for i, block in enumerate(self.transformer.h):
+                x = block(x, rel_pos, incremental_states[i])
+        else:
+            for block in self.transformer.h:
+                x = block(x, rel_pos)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
@@ -599,6 +609,11 @@ class GPT(nn.Module):
 
     @torch.no_grad()
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None):
+
+        incremental_states = {}
+        for _ in range(max_new_tokens):
+            idx_cond = idx
+            logits, _ = self(idx_cond, incremental_states)
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
