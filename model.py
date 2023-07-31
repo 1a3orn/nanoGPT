@@ -350,7 +350,7 @@ class Retention(nn.Module):
         q = q.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
         k = k.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
 
-        print(sin.shape, cos.shape, inner_mask.shape)
+        #print(sin.shape, cos.shape, inner_mask.shape)
         qr = theta_shift(q, sin, cos)
         kr = theta_shift(k, sin, cos)
 
