@@ -475,7 +475,7 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
-        rel_pos = self.transformer.rel_pos(t)
+        rel_pos = self.transformer.rel_pos(t, activate_recurrent=incremental_states is not None)
         x = self.transformer.drop(tok_emb + pos_emb)
 
         if incremental_states is not None:
