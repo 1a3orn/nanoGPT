@@ -245,7 +245,7 @@ class Retention(nn.Module):
         
         # Classic pre-softmax scaling of the heads to avoid
         # gradient saturation; in all transformers
-        self.scaling = self.key_dim ** -0.5
+        self.scaling = self.kq_dim ** -0.5
 
         self.gate_fn = get_activation_fn(activation=str(gate_fn))
 
@@ -297,7 +297,7 @@ class Retention(nn.Module):
         
         heads_num = self.heads_num
         embed_dim = self.embed_dim
-        key_dim = self.key_dim # embed_dim // heads_num
+        kq_dim = self.kq_dim # embed_dim // heads_num
         bs, leng, _ = x.size()
         
         # Note that the rel_pos is the same
