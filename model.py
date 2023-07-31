@@ -483,7 +483,7 @@ class GPT(nn.Module):
                 x = block(x, rel_pos, incremental_states[i])
         else:
             for block in self.transformer.h:
-                x = block(x, rel_pos)
+                x = block(x, rel_pos, None)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
