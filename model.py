@@ -26,6 +26,122 @@ class LayerNorm(nn.Module):
     def forward(self, input):
         return F.layer_norm(input, self.weight.shape, self.weight, self.bias, 1e-5)
 
+class RetNetRelPos(nn.Module):
+    def __init__(self, embed_dim=16, heads_num=2, recurrent_chunk_size=4):
+        super().__init__()
+        self.heads_num = heads_num
+        self.embed_dim = embed_dim
+        self.embed_dim_per_head = embed_dim // heads_num
+        self.recurrent_chunk_size = recurrent_chunk_size
+        
+        # 'Angle':
+        # 
+        # Shape: [embed_dim_per_head]
+        
+        # Values range from 1 to 1/10,000 via an exponential decay
+        # and looks like [1, 1, 0.5, 0.5, 0.25, 0.25...] such that
+        # each element repeats and has a constant ratio to the next
+        # two elements
+        angle = 1.0 / (10000 ** torch.linspace(0, 1, self.embed_dim_per_head // 2))
+        angle = angle.unsqueeze(-1).repeat(1, 2).flatten()
+        
+        
+        # 'Decay':
+        #
+        # Shape: [num_heads]
+        
+        # Values are such that each element is negative the
+        # magnitude exponentially decays by 1 / 2
+        decay = torch.log(1 - 2 ** (-5 - torch.arange(heads_num, dtype=torch.float)))
+
+        self.register_buffer("angle", angle)
+        self.register_buffer("decay", decay)
+
+    def forward(self, slen, activate_recurrent=False, chunkwise_recurrent=False):
+        if activate_recurrent:
+            sin = torch.sin(self.angle * (slen - 1))
+            cos = torch.cos(self.angle * (slen - 1))
+            retention_rel_pos = ((sin, cos), self.decay.exp())
+        elif chunkwise_recurrent:
+            index = torch.arange(slen).to(self.decay)
+            sin = torch.sin(index[:, None] * self.angle[None, :])
+            cos = torch.cos(index[:, None] * self.angle[None, :])
+
+            block_index = torch.arange(self.recurrent_chunk_size).to(self.decay)
+            mask = torch.tril(torch.ones(self.recurrent_chunk_size, self.recurrent_chunk_size).to(self.decay))
+            mask = torch.masked_fill(block_index[:, None] - block_index[None, :], ~mask.bool(), float("inf"))
+            mask = torch.exp(mask * self.decay[:, None, None])
+            mask = torch.nan_to_num(mask)
+            scale = mask.sum(dim=-1, keepdim=True).sqrt()
+            mask = mask / scale
+
+            cross_decay = torch.exp(self.decay * self.recurrent_chunk_size)
+            inner_decay = torch.exp(self.decay[:, None] * (block_index + 1))
+            cross_decay = cross_decay[:, None, None]
+            inner_decay = inner_decay[:, :, None] / (scale / scale[:, -1, None])
+            retention_rel_pos = ((sin, cos), (mask, cross_decay, inner_decay))
+        else:
+            # Make a range from 0 to slen with the same
+            # device and dtype as self.decay
+            index = torch.arange(slen).to(self.decay)
+    
+            # Because index is [length] and angle is [key_dim]
+            # multiplyiny a [length, 1] and a [1, key_dim]
+            # makes us a matrix of [length, per_head_dim],
+            # which means it's suitable for multiplying by
+            trig_base = index[:, None] * self.angle[None, :]
+            # Per-row increment up every row by a constant amount,
+            # which makes sense because this is over time unit
+            
+            # Per-column values increment DOWN every 2 columns
+            # by a constant exponential decay. 
+            
+            # So for a 6-length x 4-key_dim matrix we could
+            #
+            #tensor([[0.0e+00, 0.0e+00, 0.0e+00, 0.0e+00],
+            #        [1.0e+00, 1.0e+00, 1.00-04, 1.0e-04],
+            #        [2.0e+00, 2.0e+00, 2.0e-04, 2.0e-04],
+            #        [3.0e+00, 3.0e+00, 3.0e-04, 3.0e-04],
+            #        [4.0e+00, 4.0e+00, 4.0e-04, 4.0e-04],
+            #        [5.0e+00, 5.0e+00, 5.0e-04, 5.0e-04]])
+            sin = torch.sin(trig_base)
+            cos = torch.cos(trig_base)
+            
+            # torch.tril returns a lower-triangular part of a matrix,
+            # with everything above the diagonal set to 0
+            # So for a length of 4 this is like
+            # [[1, 0, 0, 0]
+            #  [1, 1, 0, 0]
+            #  [1, 1, 1, 0]
+            #  [1, 1, 1, 1]]
+            mask = torch.tril(torch.ones(slen, slen).to(self.decay))
+            
+            mask = torch.masked_fill(index[:, None] - index[None, :], ~mask.bool(), float("inf"))
+            # [[1, inf, inf, inf]
+            #  [2,   1, inf, inf]
+            #  [3,   2,   1, inf]
+            #  [4,   3,   2,   1]]
+            
+            # Mask is of [len, len], so we can multiply
+            # by [head_length, 1, , 1]
+            # to get a per-head mask like [head, len, len]
+            mask = torch.exp(mask * self.decay[:, None, None])
+        
+            # For overflow?
+            mask = torch.nan_to_num(mask)
+            
+            # Normalize per-row, but NOT by the sum-per-row
+            # so that each row sums to 1, but by the square
+            # root of the sum per row
+            # WTF
+            # WTF need explanation for this
+            mask_norm = mask.sum(dim=-1, keepdim=True).sqrt()
+            mask = mask / mask_norm
+                  
+            retention_rel_pos = ((sin, cos), mask)
+
+        return retention_rel_pos
+
 class CausalSelfAttention(nn.Module):
 
     def __init__(self, config):
@@ -75,6 +191,153 @@ class CausalSelfAttention(nn.Module):
         y = self.resid_dropout(self.c_proj(y))
         return y
 
+# rotate_every_two
+#
+# Interchange each two elements along the last
+# dimension of the input, and get the negativ
+# of the first
+#
+# print(rotate_every_two(torch.eye(4,4).view(1, 1, 4, 4)))
+# tensor([[[[-0.,  1., -0.,  0.],
+#           [-1.,  0., -0.,  0.],
+#           [-0.,  0., -0.,  1.],
+#           [-0.,  0., -1.,  0.]]]])
+def rotate_every_two(x):
+
+    x1 = x[:, :, :, ::2]
+    x2 = x[:, :, :, 1::2]
+    # Concatenate along a new dimension, which we
+    # will shortly forget
+    x = torch.stack((-x2, x1), dim=-1)
+    # Return something with the same dimension
+    # as the original X, but with every other element
+    # along the last dimension interchanged and with
+    # a negative created
+    return x.flatten(-2)  # in einsum notation: rearrange(x, '... d j -> ... (d j)')\
+
+def get_activation_fn(activation):
+    if activation == "swish":
+        return F.silu
+    elif activation == "gelu":
+        return F.gelu
+    else:
+        raise NotImplementedError
+
+class Retention(nn.Module):
+    def __init__(
+        self,
+        embed_dim,
+        heads_num,
+        value_factor=2,
+        gate_fn="swish",
+    ):
+        super().__init__()
+        
+        self.embed_dim = embed_dim
+        self.heads_num = heads_num
+        # The value transforms are scaled up over
+        # the size of the key / query transforms
+        # by value_factor
+        self.value_factor = value_factor
+        
+        self.kq_dim = embed_dim // heads_num
+        self.v_dim = embed_dim * value_factor // heads_num
+        
+        # Classic pre-softmax scaling of the heads to avoid
+        # gradient saturation; in all transformers
+        self.scaling = self.key_dim ** -0.5
+
+        self.gate_fn = get_activation_fn(activation=str(gate_fn))
+
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=True)
+        self.v_proj = nn.Linear(embed_dim, embed_dim * value_factor, bias=True)
+        self.g_proj = nn.Linear(embed_dim, embed_dim * value_factor, bias=True)
+
+        self.out_proj = nn.Linear(embed_dim * value_factor, embed_dim, bias=True)
+
+        self.group_norm = nn.LayerNorm(self.head_dim)
+        
+        self.reset_parameters()
+
+    def reset_parameters(self):
+        nn.init.xavier_uniform_(self.q_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_uniform_(self.k_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_uniform_(self.v_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_uniform_(self.g_proj.weight, gain=2 ** -2.5)
+        nn.init.xavier_uniform_(self.out_proj.weight)
+        nn.init.constant_(self.out_proj.bias, 0.0)
+    
+
+    def parallel_forward(self, qr, kr, v, mask):
+        bs, leng, _ = v.size()
+
+        vr = v.view(bs, leng, self.heads_num, self.v_dim).transpose(1, 2)
+        # [bs, heads_num, length, v_dim]
+
+        qk_mat = qr @ kr.transpose(-1, -2) # bs * heads_num * leng * leng
+        
+        # mask is heads_num * leng * leng, so all good
+        qk_mat = qk_mat * mask
+        
+        # what is this half-normalization thing
+        
+        qk_mat = qk_mat / qk_mat.detach().sum(dim=-1, keepdim=True).abs().clamp(min=1)
+        output = torch.matmul(qk_mat, vr)
+        output = output.transpose(1, 2)
+        return output
+    
+    def forward(
+        self,
+        x,
+        rel_pos,
+        chunkwise_recurrent=False,
+        incremental_state=None
+    ):
+        
+        heads_num = self.heads_num
+        embed_dim = self.embed_dim
+        key_dim = self.key_dim # embed_dim // heads_num
+        bs, leng, _ = x.size()
+        
+        # Note that the rel_pos is the same
+        # per layer, although if you do a recurrent mode
+        # it changes whether it is first instance of recurrence
+        # or not
+        # sin: (length, key_dim)
+        # cos: (length, key_dim)
+        # mask: (heads, length, length)
+        (sin, cos), inner_mask = rel_pos
+
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+        g = self.g_proj(x)
+
+        k *= self.scaling
+        q = q.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
+        k = k.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
+
+        qr = theta_shift(q, sin, cos)
+        kr = theta_shift(k, sin, cos)
+
+        if incremental_state is not None:
+            #output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
+            raise NotImplemented("Not implemented")
+        elif chunkwise_recurrent:
+            #output = self.chunk_recurrent_forward(qr, kr, v, inner_mask)
+            raise NotImplemented("Not implemented")
+        else:
+            output = self.parallel_forward(qr, kr, v, inner_mask)
+
+        output = self.group_norm(output).reshape(bs, leng, self.v_dim)
+
+        output = self.gate_fn(g) * output
+
+        output = self.out_proj(output)
+
+        return output
+
 class MLP(nn.Module):
 
     def __init__(self, config):
@@ -96,12 +359,16 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.ln_1 = LayerNorm(config.n_embd, bias=config.bias)
-        self.attn = CausalSelfAttention(config)
+        #self.attn = CausalSelfAttention(config)
+        self.attn = Retention(
+            embed_dim=config.n_embd,
+            heads_num=config.n_head
+        )
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, rel_pos):
+        x = x + self.attn(self.ln_1(x), rel_pos)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -124,6 +391,7 @@ class GPT(nn.Module):
         self.config = config
 
         self.transformer = nn.ModuleDict(dict(
+            rel_pos = RetNetRelPos(config.n_embd, config.n_head, recurrent_chunk_size=16),
             wte = nn.Embedding(config.vocab_size, config.n_embd),
             wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
@@ -176,9 +444,10 @@ class GPT(nn.Module):
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        rel_pos = self.transformer.rel_pos(t)
         x = self.transformer.drop(tok_emb + pos_emb)
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, rel_pos)
         x = self.transformer.ln_f(x)
 
         if targets is not None:
