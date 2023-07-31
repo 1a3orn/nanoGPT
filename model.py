@@ -298,6 +298,8 @@ class Retention(nn.Module):
         
         # kr: [bs, leng = 1, heads_num, kq_dim]
         kv = kr * v
+        print("kr", kr.shape)
+        print("kv", kv.shape)
         if "prev_key_value" in incremental_state:
             prev_kv = incremental_state["prev_key_value"]
             prev_scale = incremental_state["scale"]
@@ -309,6 +311,8 @@ class Retention(nn.Module):
 
         incremental_state["prev_key_value"] = kv
         incremental_state["scale"] = scale
+        
+        raise Exception("")
 
         output = torch.sum(qr * kv, dim=3)
         return output
@@ -480,7 +484,6 @@ class GPT(nn.Module):
         
         if incremental_states is not None:
             for i, block in enumerate(self.transformer.h):
-                print("incr")
                 x = block(x, rel_pos, incremental_states[i])
         else:
             for block in self.transformer.h:
