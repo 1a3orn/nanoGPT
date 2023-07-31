@@ -312,7 +312,7 @@ class Retention(nn.Module):
         incremental_state["prev_key_value"] = kv
         incremental_state["scale"] = scale
 
-        raise Exception("")
+        #raise Exception("")
 
         output = torch.sum(qr * kv, dim=3)
         return output
