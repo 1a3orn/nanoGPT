@@ -424,7 +424,7 @@ class GPT(nn.Module):
         self.transformer = nn.ModuleDict(dict(
             rel_pos = RetNetRelPos(config.n_embd, config.n_head, recurrent_chunk_size=16),
             wte = nn.Embedding(config.vocab_size, config.n_embd),
-            wpe = nn.Embedding(config.block_size, config.n_embd),
+            #wpe = nn.Embedding(config.block_size, config.n_embd),
             drop = nn.Dropout(config.dropout),
             h = nn.ModuleList([Block(config) for _ in range(config.n_layer)]),
             ln_f = LayerNorm(config.n_embd, bias=config.bias),
@@ -474,12 +474,12 @@ class GPT(nn.Module):
 
         # forward the GPT model itself
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
-        pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
+        # pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         rel_pos = self.transformer.rel_pos(
             t,
             activate_recurrent=incremental_states is not None and len(incremental_states.keys()) > 0
         )
-        x = self.transformer.drop(tok_emb + pos_emb)
+        x = self.transformer.drop(tok_emb)
 
         if incremental_states is not None:
             for i in range(len(self.transformer.h)):
