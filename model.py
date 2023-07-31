@@ -461,7 +461,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, incremental_states=None, targets=None):
+    def forward(self, idx, targets=None, incremental_states=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -472,7 +472,7 @@ class GPT(nn.Module):
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         rel_pos = self.transformer.rel_pos(t)
         x = self.transformer.drop(tok_emb + pos_emb)
-        
+
         if incremental_states is not None:
             for i in range(len(self.transformer.h)):
                 if i not in incremental_states:
