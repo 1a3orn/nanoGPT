@@ -306,8 +306,8 @@ class Retention(nn.Module):
             prev_kv = incremental_state["prev_key_value"]
             prev_scale = incremental_state["scale"]
             scale = prev_scale * decay + 1
-            kv = prev_kv * (1 - 1 / scale).view(self.heads_num, 1, 1) + kv / scale.view(self.heads_num, 1, 1)
-            # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
+            #kv = prev_kv * (1 - 1 / scale).view(self.heads_num, 1, 1) + kv / scale.view(self.heads_num, 1, 1)
+            kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
         else:
             scale = torch.ones_like(decay)
 
