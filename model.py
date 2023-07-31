@@ -288,7 +288,7 @@ class Retention(nn.Module):
         qk_mat = qk_mat / qk_mat.detach().sum(dim=-1, keepdim=True).abs().clamp(min=1)
         output = torch.matmul(qk_mat, vr)
         output = output.transpose(1, 2)
-        raise Exception("")
+        #raise Exception("")
         return output
 
     def recurrent_forward(self, qr, kr, v, decay, incremental_state):
