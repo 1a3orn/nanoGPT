@@ -467,7 +467,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None, incremental_states=None):
+    def forward(self, idx, targets=None, incremental_states=None, prior_token_num=None):
         device = idx.device
         b, t = idx.size()
         assert t <= self.config.block_size, f"Cannot forward sequence of length {t}, block size is only {self.config.block_size}"
@@ -477,7 +477,7 @@ class GPT(nn.Module):
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (b, t, n_embd)
         # pos_emb = self.transformer.wpe(pos) # position embeddings of shape (t, n_embd)
         rel_pos = self.transformer.rel_pos(
-            t,
+            t if not incremental_states else prior_token_num,
             activate_recurrent=incremental_states is not None and len(incremental_states.keys()) > 0
         )
         x = tok_emb
@@ -649,7 +649,7 @@ class GPT(nn.Module):
         for _ in range(max_new_tokens):
             
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
-            logits, _ = self(idx_cond[:,-1:], None, incremental_states)
+            logits, _ = self(idx_cond[:,-1:], None, incremental_states, prior_token_num=_)
             #print(idx.shape,idx_cond[:,-1:].shape, incremental_states[1]["prev_key_value"])
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
