@@ -256,7 +256,7 @@ class Retention(nn.Module):
 
         self.out_proj = nn.Linear(embed_dim * value_factor, embed_dim, bias=True)
 
-        self.group_norm = nn.LayerNorm(self.head_dim)
+        self.group_norm = nn.LayerNorm(self.v_dim)
         
         self.reset_parameters()
 
