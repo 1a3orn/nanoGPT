@@ -333,7 +333,7 @@ class Retention(nn.Module):
         else:
             output = self.parallel_forward(qr, kr, v, inner_mask)
 
-        output = self.group_norm(output).reshape(bs, leng, self.v_dim)
+        output = self.group_norm(output).reshape(bs, leng, heads_num * self.v_dim)
 
         output = self.gate_fn(g) * output
 
