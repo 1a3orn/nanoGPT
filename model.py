@@ -313,7 +313,7 @@ class Retention(nn.Module):
         incremental_state["prev_key_value"] = kv
         incremental_state["scale"] = scale
 
-        #raise Exception("")
+        
 
         output = torch.sum(qr * kv, dim=3)
         return output
@@ -352,7 +352,7 @@ class Retention(nn.Module):
         qr = theta_shift(q, sin, cos)
         kr = theta_shift(k, sin, cos)
 
-        if incremental_state is not None and False:
+        if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
         elif chunkwise_recurrent:
             #output = self.chunk_recurrent_forward(qr, kr, v, inner_mask)
