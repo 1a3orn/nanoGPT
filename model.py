@@ -215,6 +215,9 @@ def rotate_every_two(x):
     # a negative created
     return x.flatten(-2)  # in einsum notation: rearrange(x, '... d j -> ... (d j)')\
 
+def theta_shift(x, sin, cos):
+    return (x * cos) + (rotate_every_two(x) * sin)
+
 def get_activation_fn(activation):
     if activation == "swish":
         return F.silu
