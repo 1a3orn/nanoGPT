@@ -288,6 +288,7 @@ class Retention(nn.Module):
         qk_mat = qk_mat / qk_mat.detach().sum(dim=-1, keepdim=True).abs().clamp(min=1)
         output = torch.matmul(qk_mat, vr)
         output = output.transpose(1, 2)
+        raise Exception("")
         return output
 
     def recurrent_forward(self, qr, kr, v, decay, incremental_state):
@@ -298,8 +299,8 @@ class Retention(nn.Module):
         
         # kr: [bs, leng = 1, heads_num, kq_dim]
         kv = kr * v
-        print("kr", kr.shape)
-        print("kv", kv.shape)
+        #print("kr", kr.shape)
+        #print("kv", kv.shape)
         if "prev_key_value" in incremental_state:
             prev_kv = incremental_state["prev_key_value"]
             prev_scale = incremental_state["scale"]
