@@ -616,8 +616,9 @@ class GPT(nn.Module):
 
         incremental_states = {}
         for _ in range(max_new_tokens):
-            print(idx_cond.shape,idx_cond[:,-1:].shape)
+            
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            print(idx.shape,idx_cond[:,-1:].shape)
             logits, _ = self(idx_cond[:,-1:], None, incremental_states)
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
