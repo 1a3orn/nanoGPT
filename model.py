@@ -289,6 +289,29 @@ class Retention(nn.Module):
         output = torch.matmul(qk_mat, vr)
         output = output.transpose(1, 2)
         return output
+
+    def recurrent_forward(self, qr, kr, v, decay, incremental_state):
+        
+        bs, _, __ = v.shape
+
+        v = v.view(bs, self.heads_num, self.v_dim, 1)
+        
+        # kr: [bs, leng = 1, heads_num, kq_dim]
+        kv = kr * v
+        if "prev_key_value" in incremental_state:
+            prev_kv = incremental_state["prev_key_value"]
+            prev_scale = incremental_state["scale"]
+            scale = prev_scale * decay + 1
+            kv = prev_kv * (1 - 1 / scale).view(self.num_heads, 1, 1) + kv / scale.view(self.num_heads, 1, 1)
+            # kv = prev_kv * decay.view(self.num_heads, 1, 1) + kv
+        else:
+            scale = torch.ones_like(decay)
+
+        incremental_state["prev_key_value"] = kv
+        incremental_state["scale"] = scale
+
+        output = torch.sum(qr * kv, dim=3)
+        return output
     
     def forward(
         self,
@@ -325,7 +348,7 @@ class Retention(nn.Module):
         kr = theta_shift(k, sin, cos)
 
         if incremental_state is not None:
-            #output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
+            output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
             raise NotImplemented("Not implemented")
         elif chunkwise_recurrent:
             #output = self.chunk_recurrent_forward(qr, kr, v, inner_mask)
