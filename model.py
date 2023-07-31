@@ -311,7 +311,7 @@ class Retention(nn.Module):
 
         incremental_state["prev_key_value"] = kv
         incremental_state["scale"] = scale
-        
+
         raise Exception("")
 
         output = torch.sum(qr * kv, dim=3)
@@ -321,8 +321,8 @@ class Retention(nn.Module):
         self,
         x,
         rel_pos,
+        incremental_state=None,
         chunkwise_recurrent=False,
-        incremental_state=None
     ):
         
         heads_num = self.heads_num
@@ -353,7 +353,6 @@ class Retention(nn.Module):
 
         if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
-            raise NotImplemented("Not implemented")
         elif chunkwise_recurrent:
             #output = self.chunk_recurrent_forward(qr, kr, v, inner_mask)
             raise NotImplemented("Not implemented")
