@@ -352,7 +352,7 @@ class Retention(nn.Module):
         qr = theta_shift(q, sin, cos)
         kr = theta_shift(k, sin, cos)
 
-        if incremental_state is not None:
+        if incremental_state is not None and False:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
         elif chunkwise_recurrent:
             #output = self.chunk_recurrent_forward(qr, kr, v, inner_mask)
@@ -619,7 +619,7 @@ class GPT(nn.Module):
             
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             logits, _ = self(idx_cond[:,-1:], None, incremental_states)
-            print(idx.shape,idx_cond[:,-1:].shape, incremental_states[1]["prev_key_value"])
+            #print(idx.shape,idx_cond[:,-1:].shape, incremental_states[1]["prev_key_value"])
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
             if top_k is not None:
