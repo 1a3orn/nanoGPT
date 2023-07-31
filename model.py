@@ -480,6 +480,7 @@ class GPT(nn.Module):
         
         if incremental_states is not None:
             for i, block in enumerate(self.transformer.h):
+                print("incr")
                 x = block(x, rel_pos, incremental_states[i])
         else:
             for block in self.transformer.h:
