@@ -352,7 +352,7 @@ class Retention(nn.Module):
         # output: [bs, length, heads_num, v_dim]
         # the "group norm" is over only v_dim
         # so it doesn't mix data over time
-        print("output", output.shape)
+        #print("output", output.shape)
         output = self.group_norm(output).reshape(bs, leng, heads_num * self.v_dim)
 
         output = self.gate_fn(g) * output
