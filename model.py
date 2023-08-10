@@ -236,29 +236,24 @@ class Retention(nn.Module):
     ):
         super().__init__()
         
+        # The value transforms are larger than
+        # the key / query transforms by value_factor
         self.embed_dim = embed_dim
         self.heads_num = heads_num
-        # The value transforms are scaled up over
-        # the size of the key / query transforms
-        # by value_factor
         self.value_factor = value_factor
-        
         self.kq_dim = embed_dim // heads_num
-        self.v_dim = embed_dim * value_factor // heads_num
+        self.v_dim = (embed_dim // heads_num) * value_factor
         
         # Classic pre-softmax scaling of the heads to avoid
         # gradient saturation; in all transformers
         self.scaling = self.kq_dim ** -0.5
 
         self.gate_fn = get_activation_fn(activation=str(gate_fn))
-
         self.q_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.k_proj = nn.Linear(embed_dim, embed_dim, bias=True)
         self.v_proj = nn.Linear(embed_dim, embed_dim * value_factor, bias=True)
         self.g_proj = nn.Linear(embed_dim, embed_dim * value_factor, bias=True)
-
         self.out_proj = nn.Linear(embed_dim * value_factor, embed_dim, bias=True)
-
         self.group_norm = nn.LayerNorm(self.v_dim)
         
         self.reset_parameters()
@@ -332,8 +327,9 @@ class Retention(nn.Module):
         (sin, cos), inner_mask = rel_pos
 
         # q, k: [bs, leng, embed_dim]
+        q, k = self.q_proj(x), self.k_proj(x)
         # v, g: [bs, leng, embed_dim * value_factor]
-        q, k, v, g = self.q_proj(x), self.k_proj(x), self.v_proj(x), self.g_proj(x)
+        v, g = self.v_proj(x), self.g_proj(x)
 
         k *= self.scaling
         q = q.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
@@ -354,10 +350,8 @@ class Retention(nn.Module):
             output = self.parallel_forward(qr, kr, v, inner_mask)
 
         # output: [bs, length, heads_num, v_dim]
-        # batch x length x heads x v_dim
-        # the "group norm" is over the last 
-        # dimension only, so it doesn't mix data
-        # from different time steps or heads
+        # the "group norm" is over only v_dim
+        # so it doesn't mix data over time
         print("output", output.shape)
         output = self.group_norm(output).reshape(bs, leng, heads_num * self.v_dim)
 
