@@ -355,6 +355,8 @@ class Retention(nn.Module):
         #print(sin.shape, cos.shape, inner_mask.shape)
         #qr = theta_shift(q, sin, cos)
         #kr = theta_shift(k, sin, cos)
+        qr = q
+        kr = k
 
         if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
