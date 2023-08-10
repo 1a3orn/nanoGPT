@@ -633,7 +633,10 @@ class GPT(nn.Module):
         if not recurrent:
             for _ in range(max_new_tokens):
                 # if the sequence context is growing too long we must crop it at block_size
-                idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+                idx_cond = idx
+                if idx.size(1) > self.config.block_size:
+                    idx_cond = idx[:, -self.config.block_size:]
+                #idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
                 # forward the model to get the logits for the index in the sequence
                 logits, _ = self(idx_cond)
                 # pluck the logits at the final step and scale by desired temperature
@@ -654,9 +657,12 @@ class GPT(nn.Module):
         incremental_states = {}
         for _ in range(max_new_tokens):
             
-            idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            idx_cond = idx
+            if idx.size(1) > self.config.block_size:
+                idx_cond = idx[:, -self.config.block_size:]
+            #idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             logits, _ = self(idx_cond[:,-1:], None, incremental_states, prior_token_num=_+1)
-            #print(idx.shape,idx_cond[:,-1:].shape, incremental_states[1]["prev_key_value"])
+
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options
             if top_k is not None:
