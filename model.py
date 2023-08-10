@@ -364,7 +364,10 @@ class Retention(nn.Module):
         else:
             output = self.parallel_forward(qr, kr, v, inner_mask)
 
-        print(output.shape)
+        # batch x length x heads x v_dim
+        # the "group norm" is over the last 
+        # dimension only, so it doesn't mix data
+        # from different time steps or heads
         output = self.group_norm(output).reshape(bs, leng, heads_num * self.v_dim)
 
         output = self.gate_fn(g) * output
