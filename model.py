@@ -353,8 +353,8 @@ class Retention(nn.Module):
         k = k.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
 
         #print(sin.shape, cos.shape, inner_mask.shape)
-        qr = theta_shift(q, sin, cos)
-        kr = theta_shift(k, sin, cos)
+        #qr = theta_shift(q, sin, cos)
+        #kr = theta_shift(k, sin, cos)
 
         if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
@@ -626,20 +626,25 @@ class GPT(nn.Module):
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, recurrent=False):
 
         """
-        Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
-        the sequence max_new_tokens times, feeding the predictions back into the model each time.
-        Most likely you'll want to make sure to be in model.eval() mode of operation for this.
+        Take a conditioning sequence of indices idx
+        (LongTensor of shape (b,t)) and complete
+        the sequence max_new_tokens times, feeding
+        the predictions back into the model each time.
+
+        Most likely you'll want to make sure to be in
+        model.eval() mode of operation for this.
         """
-        incremental_states = None
-        if recurrent:
-            incremental_states = {}
+
+        print("Evaluating in mode recurrent={recurrent}")
+        incremental_states = None if not recurrent else {}
 
         for _ in range(max_new_tokens):
-            # if the sequence context is growing too long we must crop it at block_size
+            # if the sequence context is growing
+            # too long we must crop it at block_size
             idx_cond = idx
             if idx.size(1) > self.config.block_size:
                 idx_cond = idx[:, -self.config.block_size:]
-            #idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
+            
             # forward the model to get the logits for the index in the sequence
             logits = None
             if recurrent:
@@ -652,7 +657,9 @@ class GPT(nn.Module):
             if top_k is not None:
                 v, _ = torch.topk(logits, min(top_k, logits.size(-1)))
                 logits[logits < v[:, [-1]]] = -float('Inf')
-            # apply softmax to convert logits to (normalized) probabilities
+
+            # apply softmax to convert logits to
+            # (normalized) probabilities
             probs = F.softmax(logits, dim=-1)
             # sample from the distribution
             idx_next = torch.multinomial(probs, num_samples=1)
