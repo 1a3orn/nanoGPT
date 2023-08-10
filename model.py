@@ -283,7 +283,7 @@ class Retention(nn.Module):
         # mask is heads_num * leng * leng, so all good
         qk_mat = qk_mat * mask
         
-        # what is this half-normalization thing
+        # what is this half-normalization thing?
         
         qk_mat = qk_mat / qk_mat.detach().sum(dim=-1, keepdim=True).abs().clamp(min=1)
         output = torch.matmul(qk_mat, vr)
@@ -296,8 +296,10 @@ class Retention(nn.Module):
         bs, _, __ = v.shape
 
         v = v.view(bs, self.heads_num, self.v_dim, 1)
+
         
         # kr: [bs, leng = 1, heads_num, kq_dim]
+        # v: [bs, heads_num, v_dim, 1]
         kv = kr * v
         #print("kr", kr.shape)
         #print("kv", kv.shape)
@@ -362,6 +364,7 @@ class Retention(nn.Module):
         else:
             output = self.parallel_forward(qr, kr, v, inner_mask)
 
+        print(output.shape)
         output = self.group_norm(output).reshape(bs, leng, heads_num * self.v_dim)
 
         output = self.gate_fn(g) * output
