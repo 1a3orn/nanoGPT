@@ -321,42 +321,29 @@ class Retention(nn.Module):
         output = torch.sum(qr * kv, dim=3)
         return output
     
-    def forward(
-        self,
-        x,
-        rel_pos,
-        incremental_state=None,
-        chunkwise_recurrent=False,
-    ):
+    def forward(self, x, rel_pos, incremental_state=None, chunkwise_recurrent=False):
         
         heads_num = self.heads_num
-        embed_dim = self.embed_dim
-        kq_dim = self.kq_dim # embed_dim // heads_num
         bs, leng, _ = x.size()
         
-        # Note that the rel_pos is the same
-        # per layer, although if you do a recurrent mode
-        # it changes whether it is first instance of recurrence
-        # or not
-        # sin: (length, key_dim)
-        # cos: (length, key_dim)
-        # mask: (heads, length, length)
+        # Note that the rel_pos is the same per layer, although
+        # it changes according to if we're in recurrent,
+        # chunkwise recurrent, or parallel mode
         (sin, cos), inner_mask = rel_pos
 
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
-        g = self.g_proj(x)
+        # q, k: [bs, leng, embed_dim]
+        # v, g: [bs, leng, embed_dim * value_factor]
+        q, k, v, g = self.q_proj(x), self.k_proj(x), self.v_proj(x), self.g_proj(x)
 
         k *= self.scaling
         q = q.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
         k = k.view(bs, leng, heads_num, self.kq_dim).transpose(1, 2)
+        # After the transosition, the shape is
+        # [bs, heads_num, leng, kq_dim]
 
-        #print(sin.shape, cos.shape, inner_mask.shape)
-        #qr = theta_shift(q, sin, cos)
-        #kr = theta_shift(k, sin, cos)
-        qr = q
-        kr = k
+        # Apply xpositional embeddings
+        qr = theta_shift(q, sin, cos)
+        kr = theta_shift(k, sin, cos)
 
         if incremental_state is not None:
             output = self.recurrent_forward(qr, kr, v, inner_mask, incremental_state)
@@ -366,10 +353,12 @@ class Retention(nn.Module):
         else:
             output = self.parallel_forward(qr, kr, v, inner_mask)
 
+        # output: [bs, length, heads_num, v_dim]
         # batch x length x heads x v_dim
         # the "group norm" is over the last 
         # dimension only, so it doesn't mix data
         # from different time steps or heads
+        print("output", output.shape)
         output = self.group_norm(output).reshape(bs, leng, heads_num * self.v_dim)
 
         output = self.gate_fn(g) * output
